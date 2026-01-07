@@ -23,6 +23,7 @@ from .const import (
     CONF_COUNTRY_CODE,
     DEFAULT_POLLING_INTERVAL,
     DOMAIN,
+    COUNTRY_CODE_MAPPING,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -93,8 +94,18 @@ class ZeekrEVAPIFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type: 
                     ),
                     vol.Optional(
                         CONF_COUNTRY_CODE,
-                        default=defaults.get(CONF_COUNTRY_CODE, ""),
-                    ): str,
+                        default=defaults.get(CONF_COUNTRY_CODE, "AU"),
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                selector.SelectOptionDict(
+                                    value=code,
+                                    label=f"{name} ({code})"
+                                )
+                                for code, (name, _) in COUNTRY_CODE_MAPPING.items()
+                            ]
+                        )
+                    ),
                     vol.Optional(
                         CONF_POLLING_INTERVAL,
                         default=defaults.get(CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL),
