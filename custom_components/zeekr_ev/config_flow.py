@@ -1,10 +1,10 @@
 """Adds config flow for Zeekr EV API Integration."""
 
 import logging
+import importlib
 from typing import Dict
 
 import voluptuous as vol
-from zeekr_ev_api.client import ZeekrClient
 
 from homeassistant import config_entries
 from homeassistant.core import callback
@@ -21,12 +21,38 @@ from .const import (
     CONF_VIN_IV,
     CONF_VIN_KEY,
     CONF_COUNTRY_CODE,
+    CONF_USE_LOCAL_API,
     DEFAULT_POLLING_INTERVAL,
     DOMAIN,
     COUNTRY_CODE_MAPPING,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def get_zeekr_client_class(use_local: bool = False):
+    """Dynamically import ZeekrClient from local or installed package."""
+    if use_local:
+        try:
+            module = importlib.import_module("custom_components.zeekr_ev_api.client")
+            _LOGGER.debug("Using local zeekr_ev_api from custom_components")
+            return module.ZeekrClient
+        except ImportError as ex:
+            raise ImportError(
+                "Local zeekr_ev_api not found in custom_components. "
+                "Please install it or disable 'Use local API' option."
+            ) from ex
+    
+    # Try to import from installed package (pip)
+    try:
+        module = importlib.import_module("zeekr_ev_api.client")
+        _LOGGER.debug("Using installed zeekr_ev_api package")
+        return module.ZeekrClient
+    except ImportError as ex:
+        raise ImportError(
+            "zeekr_ev_api package not installed. "
+            "Please install it via pip or enable 'Use local API' option."
+        ) from ex
 
 
 class ZeekrEVAPIFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
@@ -55,6 +81,7 @@ class ZeekrEVAPIFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type: 
                 user_input[CONF_PROD_SECRET],
                 user_input[CONF_VIN_KEY],
                 user_input[CONF_VIN_IV],
+                user_input.get(CONF_USE_LOCAL_API, False),
             )
             if valid:
                 # Store the client for async_setup_entry to reuse
@@ -143,6 +170,10 @@ class ZeekrEVAPIFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type: 
                             type=selector.TextSelectorType.PASSWORD
                         )
                     ),
+                    vol.Optional(
+                        CONF_USE_LOCAL_API,
+                        default=defaults.get(CONF_USE_LOCAL_API, False),
+                    ): selector.BooleanSelector(),
                 }
             ),
             errors=self._errors,
@@ -159,9 +190,11 @@ class ZeekrEVAPIFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type: 
         prod_secret,
         vin_key,
         vin_iv,
+        use_local_api=False,
     ):
         """Return true if credentials is valid."""
         try:
+            ZeekrClient = get_zeekr_client_class(use_local_api)
             client = ZeekrClient(
                 username=username,
                 password=password,
@@ -210,6 +243,7 @@ class ZeekrEVAPIOptionsFlowHandler(config_entries.OptionsFlow):
                 or user_input.get(CONF_PROD_SECRET) != self._config_entry.data.get(CONF_PROD_SECRET, "")
                 or user_input.get(CONF_VIN_KEY) != self._config_entry.data.get(CONF_VIN_KEY, "")
                 or user_input.get(CONF_VIN_IV) != self._config_entry.data.get(CONF_VIN_IV, "")
+                or user_input.get(CONF_USE_LOCAL_API, False) != self._config_entry.data.get(CONF_USE_LOCAL_API, False)
             ):
                 valid = await self._test_credentials(
                     user_input.get(CONF_USERNAME, self._config_entry.data.get(CONF_USERNAME)),
@@ -221,6 +255,7 @@ class ZeekrEVAPIOptionsFlowHandler(config_entries.OptionsFlow):
                     user_input.get(CONF_PROD_SECRET, self._config_entry.data.get(CONF_PROD_SECRET, "")),
                     user_input.get(CONF_VIN_KEY, self._config_entry.data.get(CONF_VIN_KEY, "")),
                     user_input.get(CONF_VIN_IV, self._config_entry.data.get(CONF_VIN_IV, "")),
+                    user_input.get(CONF_USE_LOCAL_API, self._config_entry.data.get(CONF_USE_LOCAL_API, False)),
                 )
                 if not valid:
                     errors["base"] = "auth"
@@ -297,6 +332,10 @@ class ZeekrEVAPIOptionsFlowHandler(config_entries.OptionsFlow):
                             type=selector.TextSelectorType.PASSWORD
                         )
                     ),
+                    vol.Optional(
+                        CONF_USE_LOCAL_API,
+                        default=data.get(CONF_USE_LOCAL_API, False),
+                    ): selector.BooleanSelector(),
                 }
             ),
             errors=errors,
@@ -313,9 +352,13 @@ class ZeekrEVAPIOptionsFlowHandler(config_entries.OptionsFlow):
         prod_secret,
         vin_key,
         vin_iv,
+        use_local_api=False,
     ):
         """Return true if credentials is valid."""
         try:
+            ZeekrClient = await self.hass.async_add_executor_job(
+                get_zeekr_client_class, use_local_api
+            )
             client = ZeekrClient(
                 username=username,
                 password=password,
