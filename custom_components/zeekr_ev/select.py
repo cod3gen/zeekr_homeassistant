@@ -181,9 +181,9 @@ class ZeekrSeatSelect(CoordinatorEntity, SelectEntity):
                     sts = int(sts_val) if sts_val is not None else 2
                     detail = int(detail_val) if detail_val is not None else 0
 
-                    if sts == 2: # Off
+                    if sts == 2:  # Off
                         level = 0
-                    elif sts == 1: # On
+                    elif sts == 1:  # On
                         level = detail
                         if level == 0:
                             # Fallback if on but level reported as 0, shouldn't happen based on user logs
@@ -211,7 +211,7 @@ class ZeekrSeatSelect(CoordinatorEntity, SelectEntity):
         service_id = "ZAF"
 
         # Build setting payload
-        setting = {"serviceParameters": []}
+        setting: dict[str, Any] = {"serviceParameters": []}
 
         # Helper to set params
         params = []
@@ -261,7 +261,7 @@ class ZeekrSeatSelect(CoordinatorEntity, SelectEntity):
 
                 if level == 0:
                     climate_status[sts_key] = 2  # Off
-                    climate_status[detail_key] = 0 # Detail 0 (maybe?)
+                    climate_status[detail_key] = 0  # Detail 0 (maybe?)
                 else:
                     climate_status[sts_key] = 1  # On
                     climate_status[detail_key] = level

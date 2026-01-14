@@ -56,6 +56,8 @@ class ZeekrSwitch(CoordinatorEntity, SwitchEntity):
                 .get("climateStatus", {})
                 .get(self.field)
             )
+            if val is None:
+                return None
             # User: "1" (on), "0" (off)
             return str(val) == "1"
         except (ValueError, TypeError, AttributeError):
@@ -90,6 +92,8 @@ class ZeekrSwitch(CoordinatorEntity, SwitchEntity):
             await self.hass.async_add_executor_job(
                 vehicle.do_remote_control, command, service_id, setting
             )
+            self._update_local_state_optimistically(is_on=True)
+            self.async_write_ha_state()
             await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -117,7 +121,23 @@ class ZeekrSwitch(CoordinatorEntity, SwitchEntity):
             await self.hass.async_add_executor_job(
                 vehicle.do_remote_control, command, service_id, setting
             )
+            self._update_local_state_optimistically(is_on=False)
+            self.async_write_ha_state()
             await self.coordinator.async_request_refresh()
+
+    def _update_local_state_optimistically(self, is_on: bool) -> None:
+        """Update the coordinator data to reflect the change immediately."""
+        data = self.coordinator.data.get(self.vin)
+        if not data:
+            return
+
+        climate_status = (
+            data.setdefault("additionalVehicleStatus", {})
+            .setdefault("climateStatus", {})
+        )
+
+        if self.field == "defrost":
+            climate_status[self.field] = "1" if is_on else "0"
 
     @property
     def device_info(self):
