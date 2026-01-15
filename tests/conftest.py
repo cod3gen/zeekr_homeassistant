@@ -10,10 +10,19 @@ class DummyConfigEntries:
         return True
 
 
+class DummyConfig:
+    def __init__(self):
+        self.config_dir = "/tmp/dummy_config_dir"
+
+    def path(self, *args):
+        return "/tmp/dummy_path"
+
+
 class DummyHass:
     def __init__(self):
         self.data = {}
         self.config_entries = DummyConfigEntries()
+        self.config = DummyConfig()
 
     async def async_add_executor_job(self, func, *args, **kwargs):
         # Run synchronous callable in test loop

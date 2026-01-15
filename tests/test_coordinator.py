@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from custom_components.zeekr_ev.coordinator import ZeekrCoordinator
 
@@ -60,11 +60,15 @@ async def test_async_update_data_fetches_list_and_status(hass, mock_config_entry
         coordinator = ZeekrCoordinator(hass=hass, client=client, entry=mock_config_entry)
         coordinator.hass = hass
         coordinator.request_stats = MagicMock()
+        coordinator.request_stats.async_inc_request = AsyncMock()
         coordinator.vehicles = []
 
         data = await coordinator._async_update_data()
         assert "VIN1" in data
         assert data["VIN1"] == {"k": "v"}
+
+        # 1 call for vehicle list (since vehicles was empty), 1 call for status
+        assert coordinator.request_stats.async_inc_request.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -93,12 +97,16 @@ async def test_async_update_data_fetches_charging_status_when_charging(hass, moc
         coordinator.hass = hass
         coordinator.hass = hass
         coordinator.request_stats = MagicMock()
+        coordinator.request_stats.async_inc_request = AsyncMock()
         coordinator.vehicles = []
 
         data = await coordinator._async_update_data()
         assert "VIN1" in data
         assert "chargingStatus" in data["VIN1"]
         assert data["VIN1"]["chargingStatus"]["chargeVoltage"] == "222.0"
+
+        # 1 call for vehicle list, 1 call for status, 1 call for charging status
+        assert coordinator.request_stats.async_inc_request.call_count == 3
 
 
 @pytest.mark.asyncio
@@ -119,9 +127,13 @@ async def test_async_update_data_skips_charging_status_when_not_charging(hass, m
         coordinator = ZeekrCoordinator(hass=hass, client=client, entry=mock_config_entry)
         coordinator.hass = hass
         coordinator.request_stats = MagicMock()
+        coordinator.request_stats.async_inc_request = AsyncMock()
         coordinator.vehicles = []
 
         data = await coordinator._async_update_data()
         assert "VIN1" in data
         # chargingStatus should not be set if vehicle is not charging
         assert data["VIN1"].get("chargingStatus") is None or data["VIN1"]["chargingStatus"] == {}
+
+        # 1 call for vehicle list, 1 call for status
+        assert coordinator.request_stats.async_inc_request.call_count == 2
