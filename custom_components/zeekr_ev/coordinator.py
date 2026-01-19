@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import timedelta, datetime
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+import homeassistant.helpers.event as event
 
 
 from .const import CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL, DOMAIN
@@ -42,6 +44,7 @@ class ZeekrCoordinator(DataUpdateCoordinator):
         self.ac_duration = 15
         self.steering_wheel_duration = 15
         self.request_stats = ZeekrRequestStats(hass)
+        self.latest_poll_time: Optional[str] = None  # Track latest poll time
         polling_interval = entry.data.get(CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL)
         super().__init__(
             hass,
@@ -55,7 +58,6 @@ class ZeekrCoordinator(DataUpdateCoordinator):
         self._setup_daily_reset()
 
     def _setup_daily_reset(self):
-        import homeassistant.helpers.event as event
         if self._unsub_reset:
             self._unsub_reset()
         self._unsub_reset = event.async_track_time_change(
@@ -117,6 +119,9 @@ class ZeekrCoordinator(DataUpdateCoordinator):
                         vehicle_data["chargingLimit"] = charging_limit
                 except Exception as limit_err:
                     _LOGGER.debug("Error fetching charging limit for %s: %s", vehicle.vin, limit_err)
+
+            # Update latest poll time on every automatic poll
+            self.latest_poll_time = datetime.now().isoformat()
 
         except Exception as err:
             raise UpdateFailed(f"Error communicating with API: {err}") from err
