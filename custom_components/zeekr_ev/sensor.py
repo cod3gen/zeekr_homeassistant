@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import importlib
+import logging
+
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -18,13 +21,26 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-
 from .coordinator import ZeekrCoordinator
-import importlib
+
+_LOGGER = logging.getLogger(__name__)
+
+# Import the encryption function dynamically (try pip first, then local)
+zeekr_app_sig_module = None
+try:
+    zeekr_app_sig_module = importlib.import_module("zeekr_ev_api.zeekr_app_sig")
+except ImportError:
+    try:
+        zeekr_app_sig_module = importlib.import_module(
+            "custom_components.zeekr_ev_api.zeekr_app_sig"
+        )
+    except ImportError:
+        _LOGGER.error("Could not import zeekr_app_sig. X-VIN generation will be unavailable.")
 
 
 async def async_setup_entry(
@@ -33,6 +49,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the sensor platform."""
+    if zeekr_app_sig_module is None:
+        raise ConfigEntryNotReady("Missing required dependency: zeekr_app_sig")
+
     coordinator: ZeekrCoordinator = hass.data[DOMAIN][entry.entry_id]
 
     entities = []
@@ -41,10 +60,42 @@ async def async_setup_entry(
     entities.append(ZeekrAPIStatusSensor(coordinator, entry.entry_id))
 
     # Add API stats sensors (global, not per vehicle)
-    entities.append(ZeekrAPIStatSensor(coordinator, entry.entry_id, "api_requests_today", "API Requests Today", lambda stats: stats.api_requests_today))
-    entities.append(ZeekrAPIStatSensor(coordinator, entry.entry_id, "api_invokes_today", "API Invokes Today", lambda stats: stats.api_invokes_today))
-    entities.append(ZeekrAPIStatSensor(coordinator, entry.entry_id, "api_requests_total", "API Requests Total", lambda stats: stats.api_requests_total))
-    entities.append(ZeekrAPIStatSensor(coordinator, entry.entry_id, "api_invokes_total", "API Invokes Total", lambda stats: stats.api_invokes_total))
+    entities.append(
+        ZeekrAPIStatSensor(
+            coordinator,
+            entry.entry_id,
+            "api_requests_today",
+            "API Requests Today",
+            lambda stats: stats.api_requests_today,
+        )
+    )
+    entities.append(
+        ZeekrAPIStatSensor(
+            coordinator,
+            entry.entry_id,
+            "api_invokes_today",
+            "API Invokes Today",
+            lambda stats: stats.api_invokes_today,
+        )
+    )
+    entities.append(
+        ZeekrAPIStatSensor(
+            coordinator,
+            entry.entry_id,
+            "api_requests_total",
+            "API Requests Total",
+            lambda stats: stats.api_requests_total,
+        )
+    )
+    entities.append(
+        ZeekrAPIStatSensor(
+            coordinator,
+            entry.entry_id,
+            "api_invokes_total",
+            "API Invokes Total",
+            lambda stats: stats.api_invokes_total,
+        )
+    )
 
     # coordinator.data might be None or empty on first setup
     if not coordinator.data:
@@ -276,38 +327,44 @@ class ZeekrAPIStatusSensor(CoordinatorEntity, SensorEntity):
         if client:
             attrs["auth_token"] = client.auth_token
             attrs["bearer_token"] = client.bearer_token
-            attrs["access_token"] = client.bearer_token  # Same as bearer_token, for clarity
+            attrs["access_token"] = (
+                client.bearer_token
+            )  # Same as bearer_token, for clarity
             attrs["logged_in"] = client.logged_in
             attrs["username"] = getattr(client, "username", None)
             attrs["region_code"] = getattr(client, "region_code", None)
             attrs["app_server_host"] = getattr(client, "app_server_host", None)
             attrs["usercenter_host"] = getattr(client, "usercenter_host", None)
             # Include vehicle count
-            attrs["vehicle_count"] = len(self.coordinator.vehicles) if self.coordinator.vehicles else 0
+            attrs["vehicle_count"] = (
+                len(self.coordinator.vehicles) if self.coordinator.vehicles else 0
+            )
             # Include X-VIN (encrypted VIN) for each vehicle
-            if self.coordinator.vehicles:
+            if self.coordinator.vehicles and zeekr_app_sig_module:
                 try:
-                    # Import the encryption function dynamically (try pip first, then local)
-                    try:
-                        zeekr_app_sig = importlib.import_module("zeekr_ev_api.zeekr_app_sig")
-                    except ImportError:
-                        zeekr_app_sig = importlib.import_module("custom_components.zeekr_ev_api.zeekr_app_sig")
                     x_vins = {}
                     for vehicle in self.coordinator.vehicles:
                         vin = vehicle.vin
-                        encrypted_vin = zeekr_app_sig.aes_encrypt(
+                        encrypted_vin = zeekr_app_sig_module.aes_encrypt(
                             vin, client.vin_key, client.vin_iv
                         )
                         x_vins[vin] = encrypted_vin
                     attrs["x_vins"] = x_vins
-                except Exception:
-                    pass  # Silently fail if encryption module not available
+                except Exception as e:
+                    _LOGGER.error("Failed to generate X-VIN: %s", e)
         return attrs
 
 
 # Dedicated sensor for API stats
 class ZeekrAPIStatSensor(CoordinatorEntity, SensorEntity):
-    def __init__(self, coordinator: ZeekrCoordinator, entry_id: str, key: str, name: str, value_fn) -> None:
+    def __init__(
+        self,
+        coordinator: ZeekrCoordinator,
+        entry_id: str,
+        key: str,
+        name: str,
+        value_fn,
+    ) -> None:
         super().__init__(coordinator)
         self._entry_id = entry_id
         self._key = key
