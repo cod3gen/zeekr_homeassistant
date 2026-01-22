@@ -90,11 +90,19 @@ class ZeekrCoordinator(DataUpdateCoordinator):
 
             data = {}
             for vehicle in self.vehicles:
+                await self.request_stats.async_inc_request()
+                vehicle_state = await self.hass.async_add_executor_job(
+                    vehicle.get_remote_control_state
+                )
                 # get_status returns a dict, no need to wrap if it was a property, but it's a method calling network
                 await self.request_stats.async_inc_request()
                 vehicle_data = await self.hass.async_add_executor_job(
                     vehicle.get_status
                 )
+                if vehicle_state:
+                    vehicle_data.setdefault("additionalVehicleStatus", {})[
+                        "remoteControlState"
+                    ] = vehicle_state
                 data[vehicle.vin] = vehicle_data
 
                 # Fetch charging status if vehicle is currently charging
